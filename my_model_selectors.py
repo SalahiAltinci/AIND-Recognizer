@@ -75,9 +75,33 @@ class SelectorBIC(ModelSelector):
         :return: GaussianHMM object
         """
         warnings.filterwarnings("ignore", category=DeprecationWarning)
+        #from sklearn.model_selection import train_test_split
 
-        # TODO implement model selection based on BIC scores
-        raise NotImplementedError
+        best_model = None
+        best_score = float("-inf")
+
+        for num_states in range(self.min_n_components, self.max_n_components):
+            try:
+                model = self.base_model(num_states)
+                logL = model.score(self.X, self.lengths)
+                p = np.square(num_states) + 2 * num_states * len(self.X[0]) -1
+                logN = np.log(len(self.X[0]))
+
+                BIC = -2 * logL + p * logN
+
+                if BIC > best_score:
+                    best_score = BIC
+                    best_model = model
+
+            except Exception as e:
+                #print(str(e))
+                if self.verbose:
+                    print("failure on {} with {} states".format(self.this_word, num_states))
+
+        if best_model and self.verbose:
+            print("model created for {} with {} states and score of {}".format(self.this_word, num_states, best_score))
+
+        return best_model
 
 
 class SelectorDIC(ModelSelector):
@@ -92,9 +116,39 @@ class SelectorDIC(ModelSelector):
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection based on DIC scores
-        raise NotImplementedError
+        best_model = None
+        best_score = float("-inf")
 
+        for num_states in range(self.min_n_components, self.max_n_components):
+            try:
+                model = self.base_model(num_states)
+                logL = model.score(self.X, self.lengths)
+                antiLogLs = 0
+                M = 0 #len(self.hwords) -1
+
+                for word in self.hwords:
+                    if self.this_word != word:
+                        X, lengths = self.hwords[word]
+                        try :
+                            antiLogLs += model.score(X, lengths)
+                            M += 1
+                        except:
+                            pass
+                DIC = logL - (1.0/float(M)) * antiLogLs
+
+                if DIC > best_score:
+                    best_score = DIC
+                    best_model = model
+
+            except Exception as e:
+                #print(str(e))
+                if self.verbose:
+                    print("failure on {} with {} states".format(self.this_word, num_states))
+
+        if best_model and self.verbose:
+            print("model created for {} with {} states and score of {}".format(self.this_word, num_states, best_score))
+
+        return best_model
 
 class SelectorCV(ModelSelector):
     ''' select best model based on average log Likelihood of cross-validation folds
@@ -102,7 +156,37 @@ class SelectorCV(ModelSelector):
     '''
 
     def select(self):
+        from sklearn.model_selection import KFold
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection using CV
-        raise NotImplementedError
+        best_model = None
+        best_score = float("-inf")
+
+        K = min(10, len(self.sequences))
+        split_method = KFold(max(2, K))
+
+        for num_states in range(self.min_n_components, self.max_n_components):
+            try :
+                for cv_train_idx, cv_test_idx in split_method.split(self.sequences):
+                    try:
+                        X_train, train_lengths = combine_sequences(cv_train_idx, self.sequences)
+                        X_test, test_lengths = combine_sequences(cv_test_idx, self.sequences)
+
+                        model = GaussianHMM(n_components=num_states, covariance_type="diag",
+                                             n_iter=1000, random_state=self.random_state).fit(X_train, train_lengths)
+
+                        score = model.score(X_test, test_lengths)
+
+                        if score > best_score:
+                            best_score = score
+                            best_model = model
+                    except:
+                        pass
+            except:
+                pass
+
+        if best_model and self.verbose:
+            print("model created for {} with {} states and score of {}".format(self.this_word, num_states, best_score))
+            pass
+
+        return best_model
